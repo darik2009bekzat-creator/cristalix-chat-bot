@@ -2,6 +2,7 @@ import os
 import re
 import tempfile
 import requests
+import asyncio
 
 from telegram import Update
 from telegram.ext import (
@@ -45,7 +46,6 @@ RULES = {
 # СЛОВАРИ
 # =========================
 
-# Это не полный список: его потом можно расширять.
 BAD_WORDS = [
     "бля",
     "блять",
@@ -159,14 +159,12 @@ def extract_messages(text):
         if not line:
             continue
 
-        # Minecraft обычно использует » между ником и сообщением.
         if "»" in line:
             parts = line.split("»", 1)
 
             player = parts[0].strip()
             message = parts[1].strip()
 
-            # Убираем возможные обозначения рангов
             player = re.sub(
                 r"^[^\wА-Яа-яЁё_-]*",
                 "",
@@ -295,7 +293,7 @@ async def analyze_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     try:
         os.remove(filename)
-    except:
+    except Exception:
         pass
 
     if not text:
@@ -349,9 +347,7 @@ async def analyze_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"💬 Сообщение: «{result['message']}»\n\n"
         )
 
-    await update.message.reply_text(
-        answer
-    )
+    await update.message.reply_text(answer)
 
 
 # =========================
@@ -381,12 +377,10 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ЗАПУСК
 # =========================
 
-def main():
+async def main():
 
     if not BOT_TOKEN:
-        raise RuntimeError(
-            "Не найден BOT_TOKEN"
-        )
+        raise RuntimeError("Не найден BOT_TOKEN")
 
     application = (
         Application.builder()
@@ -411,8 +405,17 @@ def main():
 
     print("BOT STARTED")
 
-    application.run_polling()
+    await application.initialize()
+    await application.start()
+    await application.updater.start_polling()
+
+    try:
+        await asyncio.Event().wait()
+    finally:
+        await application.updater.stop()
+        await application.stop()
+        await application.shutdown()
 
 
 if __name__ == "__main__":
-    main()
+    asyncio.run(main())
