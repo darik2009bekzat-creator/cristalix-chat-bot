@@ -3,6 +3,8 @@ import re
 import tempfile
 import requests
 import asyncio
+import threading
+from http.server import BaseHTTPRequestHandler, HTTPServer
 
 from telegram import Update
 from telegram.ext import (
@@ -12,6 +14,7 @@ from telegram.ext import (
     ContextTypes,
     filters,
 )
+
 
 # =========================
 # НАСТРОЙКИ
@@ -24,22 +27,31 @@ OCR_URL = "https://api.ocr.space/parse/image"
 
 
 # =========================
-# ПРАВИЛА CRISTALIX
+# HTTP-СЕРВЕР ДЛЯ RENDER
 # =========================
 
-RULES = {
-    "2.1": "Выдача себя за модерацию или администрацию",
-    "2.4": "Дискриминация",
-    "2.5": "Пропаганда запрещённых явлений",
-    "2.7": "Нецензурная или чрезмерно грубая лексика",
-    "2.8": "Оскорбление, нахальное поведение или угрозы",
-    "2.10": "Флуд",
-    "2.11": "Организация массового флуда",
-    "2.12": "Сообщение написано капсом",
-    "2.13": "Неадекватное или аморальное поведение",
-    "2.14": "Чрезмерно токсичное поведение",
-    "2.15": "Реклама сторонних ресурсов или других серверов",
-}
+class HealthHandler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200)
+        self.send_header("Content-Type", "text/plain; charset=utf-8")
+        self.end_headers()
+        self.wfile.write(b"Bot is running!")
+
+    def log_message(self, format, *args):
+        return
+
+
+def start_web_server():
+    port = int(os.environ.get("PORT", "10000"))
+
+    server = HTTPServer(
+        ("0.0.0.0", port),
+        HealthHandler
+    )
+
+    print(f"WEB SERVER STARTED ON PORT {port}")
+
+    server.serve_forever()
 
 
 # =========================
@@ -50,7 +62,6 @@ BAD_WORDS = [
     "бля",
     "блять",
     "блядь",
-    "сука",
     "ебать",
     "ебан",
     "нахуй",
@@ -258,7 +269,7 @@ def check_message(player, message):
             ("2.15", "Реклама сторонних ресурсов или других серверов")
         )
 
-    # Упоминание другого сервера
+    # Другой сервер
     for server in OTHER_SERVERS:
         if server in text:
             violations.append(
@@ -273,8 +284,10 @@ def check_message(player, message):
 # АНАЛИЗ ФОТО
 # =========================
 
-async def analyze_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
-
+async def analyze_photo(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE
+):
     await update.message.reply_text(
         "🔎 Анализирую скриншот..."
     )
@@ -283,9 +296,7 @@ async def analyze_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     file = await context.bot.get_file(photo.file_id)
 
-    filename = tempfile.mktemp(
-        suffix=".jpg"
-    )
+    filename = tempfile.mktemp(suffix=".jpg")
 
     await file.download_to_drive(filename)
 
@@ -354,8 +365,10 @@ async def analyze_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # КОМАНДЫ
 # =========================
 
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-
+async def start(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE
+):
     await update.message.reply_text(
         "👋 Привет!\n\n"
         "Отправь мне скриншот Minecraft-чата, "
@@ -364,8 +377,10 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 
-async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-
+async def help_command(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE
+):
     await update.message.reply_text(
         "📸 Просто отправь скриншот Minecraft-чата.\n\n"
         "Я распознаю сообщения и проверю их "
@@ -374,11 +389,10 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 # =========================
-# ЗАПУСК
+# ЗАПУСК БОТА
 # =========================
 
-async def main():
-
+async def run_bot():
     if not BOT_TOKEN:
         raise RuntimeError("Не найден BOT_TOKEN")
 
@@ -417,5 +431,20 @@ async def main():
         await application.shutdown()
 
 
+# =========================
+# MAIN
+# =========================
+
+def main():
+    web_thread = threading.Thread(
+        target=start_web_server,
+        daemon=True
+    )
+
+    web_thread.start()
+
+    asyncio.run(run_bot())
+
+
 if __name__ == "__main__":
-    asyncio.run(main())
+    main()
