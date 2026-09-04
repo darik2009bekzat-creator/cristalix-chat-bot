@@ -1,3 +1,4 @@
+```python
 import os
 import re
 import tempfile
@@ -15,7 +16,6 @@ from telegram.ext import (
     filters,
 )
 
-
 # =========================
 # НАСТРОЙКИ
 # =========================
@@ -31,9 +31,13 @@ OCR_URL = "https://api.ocr.space/parse/image"
 # =========================
 
 class HealthHandler(BaseHTTPRequestHandler):
+
     def do_GET(self):
         self.send_response(200)
-        self.send_header("Content-Type", "text/plain; charset=utf-8")
+        self.send_header(
+            "Content-Type",
+            "text/plain; charset=utf-8"
+        )
         self.end_headers()
         self.wfile.write(b"Bot is running!")
 
@@ -55,6 +59,25 @@ def start_web_server():
 
 
 # =========================
+# ПРАВИЛА CRISTALIX
+# =========================
+
+RULES = {
+    "2.1": "Выдача себя за модерацию или администрацию",
+    "2.4": "Дискриминация",
+    "2.5": "Пропаганда запрещённых явлений",
+    "2.7": "Нецензурная или чрезмерно грубая лексика",
+    "2.8": "Оскорбление, нахальное поведение или угрозы",
+    "2.10": "Флуд",
+    "2.11": "Организация массового флуда",
+    "2.12": "Сообщение написано капсом",
+    "2.13": "Неадекватное или аморальное поведение",
+    "2.14": "Чрезмерно токсичное поведение",
+    "2.15": "Реклама сторонних ресурсов или других серверов",
+}
+
+
+# =========================
 # СЛОВАРИ
 # =========================
 
@@ -62,6 +85,7 @@ BAD_WORDS = [
     "бля",
     "блять",
     "блядь",
+    "сука",
     "ебать",
     "ебан",
     "нахуй",
@@ -124,12 +148,18 @@ OTHER_SERVERS = [
 # =========================
 
 def recognize_image(filename):
+
     try:
         with open(filename, "rb") as image:
+
             response = requests.post(
                 OCR_URL,
-                headers={"apikey": OCR_KEY},
-                files={"file": image},
+                headers={
+                    "apikey": OCR_KEY
+                },
+                files={
+                    "file": image
+                },
                 data={
                     "language": "rus",
                     "isOverlayRequired": "false",
@@ -138,22 +168,42 @@ def recognize_image(filename):
                 timeout=60,
             )
 
+        print("OCR STATUS:", response.status_code)
+
         data = response.json()
 
+        print("OCR RESPONSE:",
+              str(data)[:2000])
+
         if data.get("IsErroredOnProcessing"):
+            print(
+                "OCR PROCESSING ERROR:",
+                data.get("ErrorMessage")
+            )
             return ""
 
-        results = data.get("ParsedResults", [])
+        results = data.get(
+            "ParsedResults",
+            []
+        )
 
         text = "\n".join(
-            item.get("ParsedText", "")
+            item.get(
+                "ParsedText",
+                ""
+            )
             for item in results
         )
 
         return text.strip()
 
     except Exception as e:
-        print("OCR ERROR:", e)
+
+        print(
+            "OCR ERROR:",
+            repr(e)
+        )
+
         return ""
 
 
@@ -162,16 +212,38 @@ def recognize_image(filename):
 # =========================
 
 def extract_messages(text):
+
     messages = []
 
     for line in text.splitlines():
+
         line = line.strip()
 
         if not line:
             continue
 
-        if "»" in line:
-            parts = line.split("»", 1)
+        # Основной вариант Cristalix
+        separators = [
+            "»",
+            ">",
+            "» ",
+            ":",
+        ]
+
+        found = False
+
+        for separator in separators:
+
+            if separator not in line:
+                continue
+
+            parts = line.split(
+                separator,
+                1
+            )
+
+            if len(parts) != 2:
+                continue
 
             player = parts[0].strip()
             message = parts[1].strip()
@@ -183,7 +255,19 @@ def extract_messages(text):
             )
 
             if player and message:
-                messages.append((player, message))
+
+                messages.append(
+                    (
+                        player,
+                        message
+                    )
+                )
+
+                found = True
+                break
+
+        if found:
+            continue
 
     return messages
 
@@ -192,28 +276,49 @@ def extract_messages(text):
 # ПРОВЕРКА ПРАВИЛ
 # =========================
 
-def check_message(player, message):
+def check_message(
+    player,
+    message
+):
+
     text = message.lower()
+
     violations = []
 
     # 2.7 — мат
     for word in BAD_WORDS:
+
         if word in text:
+
             violations.append(
-                ("2.7", "Нецензурная или чрезмерно грубая лексика")
+                (
+                    "2.7",
+                    RULES["2.7"]
+                )
             )
+
             break
 
     # 2.4 — дискриминация
     for word in DISCRIMINATION:
+
         if word in text:
+
             violations.append(
-                ("2.4", "Дискриминация")
+                (
+                    "2.4",
+                    RULES["2.4"]
+                )
             )
+
             break
 
     # 2.1 — выдача себя за персонал
-    if any(word in text for word in STAFF_WORDS):
+    if any(
+        word in text
+        for word in STAFF_WORDS
+    ):
+
         phrases = [
             "я админ",
             "я модер",
@@ -225,26 +330,56 @@ def check_message(player, message):
             "я helper",
         ]
 
-        if any(phrase in text for phrase in phrases):
+        if any(
+            phrase in text
+            for phrase in phrases
+        ):
+
             violations.append(
-                ("2.1", "Выдача себя за модерацию или администрацию")
+                (
+                    "2.1",
+                    RULES["2.1"]
+                )
             )
 
     # 2.8 — оскорбления
-    if any(word in text for word in TOXIC_WORDS):
+    if any(
+        word in text
+        for word in TOXIC_WORDS
+    ):
+
         violations.append(
-            ("2.8", "Оскорбление или нахальное поведение")
+            (
+                "2.8",
+                RULES["2.8"]
+            )
         )
 
     # 2.12 — капс
-    letters = [c for c in message if c.isalpha()]
+    letters = [
+        c
+        for c in message
+        if c.isalpha()
+    ]
 
     if len(letters) >= 6:
-        upper = sum(1 for c in letters if c.isupper())
 
-        if upper >= 6 or upper / len(letters) >= 0.5:
+        upper = sum(
+            1
+            for c in letters
+            if c.isupper()
+        )
+
+        if (
+            upper >= 6
+            or upper / len(letters) >= 0.5
+        ):
+
             violations.append(
-                ("2.12", "Сообщение написано капсом")
+                (
+                    "2.12",
+                    RULES["2.12"]
+                )
             )
 
     # 2.13 — аморальное содержание
@@ -258,23 +393,43 @@ def check_message(player, message):
         "шлюха",
     ]
 
-    if any(word in text for word in immoral):
+    if any(
+        word in text
+        for word in immoral
+    ):
+
         violations.append(
-            ("2.13", "Неадекватное или аморальное поведение")
+            (
+                "2.13",
+                RULES["2.13"]
+            )
         )
 
     # 2.15 — реклама
-    if any(word in text for word in AD_WORDS):
+    if any(
+        word in text
+        for word in AD_WORDS
+    ):
+
         violations.append(
-            ("2.15", "Реклама сторонних ресурсов или других серверов")
+            (
+                "2.15",
+                RULES["2.15"]
+            )
         )
 
     # Другой сервер
     for server in OTHER_SERVERS:
+
         if server in text:
+
             violations.append(
-                ("2.15", "Упоминание стороннего сервера")
+                (
+                    "2.15",
+                    RULES["2.15"]
+                )
             )
+
             break
 
     return violations
@@ -288,77 +443,137 @@ async def analyze_photo(
     update: Update,
     context: ContextTypes.DEFAULT_TYPE
 ):
+
     await update.message.reply_text(
-        "🔎 Анализирую скриншот..."
+        "📥 Фото получено.\n"
+        "🔎 Начинаю обработку..."
     )
 
-    photo = update.message.photo[-1]
-
-    file = await context.bot.get_file(photo.file_id)
-
-    filename = tempfile.mktemp(suffix=".jpg")
-
-    await file.download_to_drive(filename)
-
-    text = recognize_image(filename)
-
     try:
-        os.remove(filename)
-    except Exception:
-        pass
 
-    if not text:
+        photo = update.message.photo[-1]
+
         await update.message.reply_text(
-            "❌ Не удалось распознать текст на скриншоте."
+            "📥 Скачиваю изображение..."
         )
-        return
 
-    print("OCR TEXT:")
-    print(text)
+        file = await context.bot.get_file(
+            photo.file_id
+        )
 
-    messages = extract_messages(text)
+        filename = tempfile.mktemp(
+            suffix=".jpg"
+        )
 
-    if not messages:
+        await file.download_to_drive(
+            filename
+        )
+
         await update.message.reply_text(
-            "⚠️ Не удалось определить формат сообщений Minecraft-чата."
-        )
-        return
-
-    results = []
-
-    for player, message in messages:
-        violations = check_message(
-            player,
-            message
+            "🔎 Отправляю изображение в OCR..."
         )
 
-        for rule, description in violations:
-            results.append(
-                {
-                    "player": player,
-                    "rule": rule,
-                    "description": description,
-                    "message": message,
-                }
+        text = recognize_image(
+            filename
+        )
+
+        try:
+            os.remove(filename)
+        except Exception:
+            pass
+
+        print("OCR TEXT:")
+        print(repr(text))
+
+        if not text:
+
+            await update.message.reply_text(
+                "❌ OCR не смог распознать текст.\n\n"
+                "Проверь Logs Render — там будет "
+                "причина ошибки OCR."
             )
 
-    if not results:
+            return
+
+        # Показываем распознанный текст
         await update.message.reply_text(
-            "✅ Явных нарушений не обнаружено."
-        )
-        return
-
-    answer = "🔎 АНАЛИЗ ЧАТА\n\n"
-
-    for result in results:
-        answer += (
-            f"👤 Нарушитель: {result['player']}\n"
-            f"📕 Правило: {result['rule']}\n"
-            f"⚠️ Нарушение: {result['description']}\n"
-            f"💬 Сообщение: «{result['message']}»\n\n"
+            "✅ OCR текст получен!\n\n"
+            + text[:3500]
         )
 
-    await update.message.reply_text(answer)
+        messages = extract_messages(
+            text
+        )
+
+        if not messages:
+
+            await update.message.reply_text(
+                "⚠️ Текст распознан, "
+                "но формат сообщений не найден.\n\n"
+                "Теперь мы видим сам текст OCR "
+                "и сможем подстроить распознавание."
+            )
+
+            return
+
+        results = []
+
+        for player, message in messages:
+
+            violations = check_message(
+                player,
+                message
+            )
+
+            for rule, description in violations:
+
+                results.append(
+                    {
+                        "player": player,
+                        "rule": rule,
+                        "description": description,
+                        "message": message,
+                    }
+                )
+
+        if not results:
+
+            await update.message.reply_text(
+                "✅ Явных нарушений не обнаружено."
+            )
+
+            return
+
+        answer = "🔎 АНАЛИЗ ЧАТА\n\n"
+
+        for result in results:
+
+            answer += (
+                f"👤 Нарушитель: "
+                f"{result['player']}\n"
+                f"📕 Правило: "
+                f"{result['rule']}\n"
+                f"⚠️ Нарушение: "
+                f"{result['description']}\n"
+                f"💬 Сообщение: "
+                f"«{result['message']}»\n\n"
+            )
+
+        await update.message.reply_text(
+            answer[:4000]
+        )
+
+    except Exception as e:
+
+        print(
+            "PHOTO ERROR:",
+            repr(e)
+        )
+
+        await update.message.reply_text(
+            "❌ Ошибка при обработке фото:\n\n"
+            + str(e)[:1500]
+        )
 
 
 # =========================
@@ -369,6 +584,7 @@ async def start(
     update: Update,
     context: ContextTypes.DEFAULT_TYPE
 ):
+
     await update.message.reply_text(
         "👋 Привет!\n\n"
         "Отправь мне скриншот Minecraft-чата, "
@@ -381,10 +597,12 @@ async def help_command(
     update: Update,
     context: ContextTypes.DEFAULT_TYPE
 ):
+
     await update.message.reply_text(
-        "📸 Просто отправь скриншот Minecraft-чата.\n\n"
-        "Я распознаю сообщения и проверю их "
-        "по правилам чата."
+        "📸 Просто отправь скриншот "
+        "Minecraft-чата.\n\n"
+        "Я распознаю сообщения и проверю "
+        "их по правилам чата."
     )
 
 
@@ -393,8 +611,12 @@ async def help_command(
 # =========================
 
 async def run_bot():
+
     if not BOT_TOKEN:
-        raise RuntimeError("Не найден BOT_TOKEN")
+
+        raise RuntimeError(
+            "Не найден BOT_TOKEN"
+        )
 
     application = (
         Application.builder()
@@ -403,11 +625,17 @@ async def run_bot():
     )
 
     application.add_handler(
-        CommandHandler("start", start)
+        CommandHandler(
+            "start",
+            start
+        )
     )
 
     application.add_handler(
-        CommandHandler("help", help_command)
+        CommandHandler(
+            "help",
+            help_command
+        )
     )
 
     application.add_handler(
@@ -420,14 +648,21 @@ async def run_bot():
     print("BOT STARTED")
 
     await application.initialize()
+
     await application.start()
+
     await application.updater.start_polling()
 
     try:
+
         await asyncio.Event().wait()
+
     finally:
+
         await application.updater.stop()
+
         await application.stop()
+
         await application.shutdown()
 
 
@@ -436,6 +671,7 @@ async def run_bot():
 # =========================
 
 def main():
+
     web_thread = threading.Thread(
         target=start_web_server,
         daemon=True
@@ -443,8 +679,11 @@ def main():
 
     web_thread.start()
 
-    asyncio.run(run_bot())
+    asyncio.run(
+        run_bot()
+    )
 
 
 if __name__ == "__main__":
     main()
+```
